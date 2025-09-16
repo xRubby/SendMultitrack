@@ -1,14 +1,22 @@
-import sounddevice as sd
+import os
+
+# Abilito supporto ASIO
+os.environ['SD_ENABLE_ASIO'] = '1'
+
 import socket
 import struct
 import numpy as np
+import sounddevice as sd
 
 # Configurazione
-CHANNELS = 2
+CHANNELS = 40
 SAMPLERATE = 48000
 BLOCKSIZE = 1024
 SERVER_IP = '0.0.0.0'
 PORT = 5000
+DEVICE_NAME = "REAC:"
+
+print(sd.query_devices()) 
 
 # Socket TCP
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -25,8 +33,8 @@ def callback(indata, frames, time, status):
     # Converti in bytes e invia
     conn.sendall(indata.tobytes())
 
-with sd.InputStream(device=62, channels=CHANNELS, samplerate=SAMPLERATE,
-                    blocksize=BLOCKSIZE, dtype='float32', callback=callback):
+with sd.InputStream(device=DEVICE_NAME, channels=CHANNELS, samplerate=SAMPLERATE,
+                    blocksize=BLOCKSIZE, dtype='float32', callback=None):
     print("Streaming audio in corso...")
     try:
         while True:
