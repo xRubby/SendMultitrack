@@ -34,7 +34,7 @@ def callback(indata, frames, time, status):
     conn.sendall(indata.tobytes())
 
 with sd.InputStream(device=DEVICE_NAME, channels=CHANNELS, samplerate=SAMPLERATE,
-                    blocksize=BLOCKSIZE, dtype='float32', callback=None):
+                    blocksize=BLOCKSIZE, dtype='float32', callback=callback):
     print("Streaming audio in corso...")
     try:
         while True:
