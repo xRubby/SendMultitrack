@@ -12,8 +12,8 @@ os.environ['SD_ENABLE_ASIO'] = '1'   # Abilito supporto ASIO
 CHANNELS    = 2
 SAMPLERATE  = 48000
 BLOCKSIZE   = 1024
-SERVER_IP   = '0.0.0.0'
-PORT        = 5000       
+SERVER_IP   = '0.0.0.0'   # TCP bind
+PORT        = 5000        # stessa porta sia per TCP che per UDP discovery
 DEVICE_NAME = 62
 
 # ---------------------------------------------------
@@ -26,7 +26,7 @@ def discovery_service():
     """
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    udp_sock.bind((SERVER_IP, PORT))
+    udp_sock.bind(('0.0.0.0', PORT))
     print(f"[DISCOVERY] In ascolto UDP sulla porta {PORT}")
 
     while True:
