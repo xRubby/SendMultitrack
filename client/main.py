@@ -3,19 +3,46 @@ import socket
 import numpy as np
 
 # ----------------- CONFIGURAZIONE -----------------
-CHANNELS = 2            # Numero di canali ricevuti
-SAMPLERATE = 48000       # Frequenza di campionamento
-BLOCKSIZE = 1024         # Dimensione del blocco audio
-SERVER_IP = '192.168.1.113'  # Inserisci l'IP del server Windows
-PORT = 5000
+CHANNELS   = 1          # Numero di canali ricevuti
+SAMPLERATE = 48000      # Frequenza di campionamento
+BLOCKSIZE  = 1024       # Dimensione del blocco audio
+DISCOVERY_PORT = 5000   # Porta su cui il server ascolta il discovery
+TCP_PORT   = 5000       # Stessa porta usata poi per la connessione audio
+BLACKHOLE_DEVICE = 32
 
-# Nome del dispositivo BlackHole 64ch (come appare in sd.query_devices())
-BLACKHOLE_DEVICE = 'BlackHole 64ch'
+# ----------------- DISCOVERY -----------------
+def discover_server():
+    """
+    Invia un messaggio broadcast DISCOVERY e attende la risposta
+    con l'IP del server.
+    """
+    msg = b"DISCOVERY"
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    udp.settimeout(3)  # timeout di qualche secondo
+
+    # Invia il pacchetto broadcast
+    udp.sendto(msg, ('255.255.255.255', DISCOVERY_PORT))
+    print("Inviato pacchetto di discovery...")
+
+    try:
+        data, addr = udp.recvfrom(1024)
+        print(f"Risposta discovery da {addr}: {data}")
+        if data.startswith(b"SERVER_IP:"):
+            server_ip = data.decode().split("SERVER_IP:")[1]
+            return server_ip.strip()
+    except socket.timeout:
+        raise RuntimeError("Nessuna risposta di discovery ricevuta.")
+    finally:
+        udp.close()
 
 # ----------------- CONNESSIONE TCP -----------------
+SERVER_IP = discover_server()
+print(f"IP del server rilevato: {SERVER_IP}")
+
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect((SERVER_IP, PORT))
-print("Connesso al server!")
+sock.connect((SERVER_IP, TCP_PORT))
+print("Connesso al server audio!")
 
 # ----------------- CALLBACK AUDIO -----------------
 def audio_callback(outdata, frames, time, status):
@@ -24,19 +51,18 @@ def audio_callback(outdata, frames, time, status):
     try:
         # Ricevo dati dal server
         data = b''
-        while len(data) < frames * CHANNELS * 4:  # 4 byte per float32
-            packet = sock.recv(frames * CHANNELS * 4 - len(data))
+        needed = frames * CHANNELS * 4  # 4 byte per float32
+        while len(data) < needed:
+            packet = sock.recv(needed - len(data))
             if not packet:
                 raise ConnectionError("Server chiuso")
             data += packet
 
         # Converto in array NumPy
-        audio_block = np.frombuffer(data, dtype='float32')
-        audio_block = audio_block.reshape(frames, CHANNELS)
+        audio_block = np.frombuffer(data, dtype='float32').reshape(frames, CHANNELS)
 
-        # BlackHole ha più canali (64), metto i 40 canali ricevuti nei primi 40
+        # Copio nei primi canali e azzero i restanti
         outdata[:, :CHANNELS] = audio_block
-        # Gli altri canali li azzero
         if outdata.shape[1] > CHANNELS:
             outdata[:, CHANNELS:] = 0.0
 
@@ -45,7 +71,7 @@ def audio_callback(outdata, frames, time, status):
         outdata.fill(0.0)
 
 # ----------------- STREAM OUTPUT -----------------
-with sd.OutputStream(channels=64,  # BlackHole 64ch
+with sd.OutputStream(channels=CHANNELS,
                      samplerate=SAMPLERATE,
                      blocksize=BLOCKSIZE,
                      dtype='float32',

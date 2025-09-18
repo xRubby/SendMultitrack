@@ -1,40 +1,77 @@
 import os
-
-# Abilito supporto ASIO
-os.environ['SD_ENABLE_ASIO'] = '1'
-
 import socket
-import struct
+import threading
 import numpy as np
 import sounddevice as sd
 
-# Configurazione
-CHANNELS = 40
-SAMPLERATE = 48000
-BLOCKSIZE = 1024
-SERVER_IP = '0.0.0.0'
-PORT = 5000
-DEVICE_NAME = "REAC:"
+# ---------------------------------------------------
+# CONFIGURAZIONE
+# ---------------------------------------------------
+os.environ['SD_ENABLE_ASIO'] = '1'   # Abilito supporto ASIO
 
-print(sd.query_devices()) 
+CHANNELS    = 2
+SAMPLERATE  = 48000
+BLOCKSIZE   = 1024
+SERVER_IP   = '0.0.0.0'
+PORT        = 5000       
+DEVICE_NAME = 62
 
-# Socket TCP
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.bind((SERVER_IP, PORT))
-sock.listen(1)
-print("In attesa di connessione dal client...")
-conn, addr = sock.accept()
-print(f"Connessione stabilita con {addr}")
+# ---------------------------------------------------
+# FUNZIONE DISCOVERY
+# ---------------------------------------------------
+def discovery_service():
+    """
+    Ascolta i pacchetti UDP DISCOVERY e risponde con l'IP locale
+    usato verso il client.
+    """
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    udp_sock.bind((SERVER_IP, PORT))
+    print(f"[DISCOVERY] In ascolto UDP sulla porta {PORT}")
 
-# Callback audio
+    while True:
+        data, addr = udp_sock.recvfrom(1024)
+        if data.strip() == b"DISCOVERY":
+            # Calcola l'IP locale che il server userebbe verso quel client
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as temp:
+                temp.connect(addr)
+                local_ip = temp.getsockname()[0]
+
+            risposta = f"SERVER_IP:{local_ip}".encode()
+            udp_sock.sendto(risposta, addr)
+            print(f"[DISCOVERY] Risposto a {addr} con {local_ip}")
+
+# Avvia il thread del discovery
+threading.Thread(target=discovery_service, daemon=True).start()
+
+# ---------------------------------------------------
+# TCP STREAMING AUDIO
+# ---------------------------------------------------
+print(sd.query_devices())
+
+tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+tcp_sock.bind((SERVER_IP, PORT))
+tcp_sock.listen(1)
+print("In attesa di connessione TCP dal client...")
+conn, addr = tcp_sock.accept()
+print(f"Connessione TCP stabilita con {addr}")
+
 def callback(indata, frames, time, status):
     if status:
         print(status)
-    # Converti in bytes e invia
-    conn.sendall(indata.tobytes())
+    # invio blocchi audio
+    try:
+        conn.sendall(indata.tobytes())
+    except BrokenPipeError:
+        print("Connessione TCP interrotta")
+        raise KeyboardInterrupt
 
-with sd.InputStream(device=DEVICE_NAME, channels=CHANNELS, samplerate=SAMPLERATE,
-                    blocksize=BLOCKSIZE, dtype='float32', callback=callback):
+with sd.InputStream(device=DEVICE_NAME,
+                    channels=CHANNELS,
+                    samplerate=SAMPLERATE,
+                    blocksize=BLOCKSIZE,
+                    dtype='float32',
+                    callback=callback):
     print("Streaming audio in corso...")
     try:
         while True:
@@ -42,4 +79,4 @@ with sd.InputStream(device=DEVICE_NAME, channels=CHANNELS, samplerate=SAMPLERATE
     except KeyboardInterrupt:
         print("Chiusura server...")
         conn.close()
-        sock.close()
+        tcp_sock.close()
