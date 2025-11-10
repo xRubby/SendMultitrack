@@ -3,8 +3,6 @@
 Stream audio **multi-canale** in tempo reale su rete locale tramite UDP.  
 Supporta più client, discovery automatico del server e terminazione sicura.
 
----
-
 ## ⚡ Features
 
 - Streaming audio senza limiti di canali (configurabile)
@@ -12,8 +10,6 @@ Supporta più client, discovery automatico del server e terminazione sicura.
 - Supporto dispositivi ASIO su Windows
 - Terminazione sicura con pacchetto `TERMINATE`
 - Configurabile: dispositivo, numero di canali, sample rate
-
----
 
 ## ⚙️ Configurazione
 
@@ -25,8 +21,6 @@ CHANNELS = 8     # Numero di canali audio
 RATE = 48000     # Sample rate (Hz)
 CHUNK = 512      # Dimensione blocco audio
 ```
-
----
 
 ## 🚀 Avvio
 
@@ -61,8 +55,6 @@ python client.py
 ```
 
 Il client cercherà automaticamente il server in rete locale e riprodurrà l’audio ricevuto.
-
----
 
 ## ⚠️ Note
 
