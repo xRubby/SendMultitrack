@@ -1,19 +1,24 @@
 import socket
-import sounddevice as sd
 import numpy as np
 import threading
 import time
 import sys
+import os
+
+# Abilito supporto ASIO
+os.environ['SD_ENABLE_ASIO'] = '1'
+
+import sounddevice as sd
 
 # Porte utilizzate per discovery e streaming audio
 PORT_DISCOVERY = 50000
 PORT_AUDIO = 50020
 
 # Configurazione dispositivo e parametri audio
-DEVICE = 1  # indice del dispositivo di input audio
-CHANNELS = 8  # numero di canali audio
-RATE = 48000  # sample rate (Hz)
-CHUNK = 512  # dimensione blocco audio
+DEVICE = 1      # indice del dispositivo di input audio
+CHANNELS = 8    # numero di canali audio
+RATE = 48000    # sample rate (Hz)
+CHUNK = 512     # dimensione blocco audio
 
 clients = set()  # insieme degli IP dei client connessi
 lock = threading.Lock()  # lock per gestire accesso concorrente a "clients"
