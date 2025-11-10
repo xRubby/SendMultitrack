@@ -1,86 +1,91 @@
-import sounddevice as sd
 import socket
+import sounddevice as sd
 import numpy as np
+import threading
+import sys
+import time
 
-# ----------------- CONFIGURAZIONE -----------------
-CHANNELS   = 1          # Numero di canali ricevuti
-SAMPLERATE = 48000      # Frequenza di campionamento
-BLOCKSIZE  = 1024       # Dimensione del blocco audio
-DISCOVERY_PORT = 5000   # Porta su cui il server ascolta il discovery
-TCP_PORT   = 5000       # Stessa porta usata poi per la connessione audio
-BLACKHOLE_DEVICE = 32
+# Porte utilizzate per discovery del server e streaming audio
+PORT_DISCOVERY = 50000
+PORT_AUDIO = 50020
 
-# ----------------- DISCOVERY -----------------
+# Configurazione dispositivo e parametri audio
+DEVICE = "BlackHole 64ch"  # nome del dispositivo audio di output
+CHANNELS = 8               # numero di canali audio
+RATE = 48000               # sample rate (Hz)
+CHUNK = 512                # dimensione del blocco audio da ricevere
+
+# Flag globale per fermare il client audio
+stop_flag = False
+
+# Funzione per scoprire il server in rete locale tramite broadcast UDP
 def discover_server():
-    """
-    Invia un messaggio broadcast DISCOVERY e attende la risposta
-    con l'IP del server.
-    """
-    msg = b"DISCOVERY"
-    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    udp.settimeout(3)  # timeout di qualche secondo
-
-    # Invia il pacchetto broadcast
-    udp.sendto(msg, ('255.255.255.255', DISCOVERY_PORT))
-    print("Inviato pacchetto di discovery...")
-
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # crea socket UDP
+    udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)  # abilita broadcast
+    udp_sock.settimeout(3)  # timeout 3 secondi
+    udp_sock.sendto(b"DISCOVERY", ('<broadcast>', PORT_DISCOVERY))  # invia messaggio di discovery
+    
     try:
-        data, addr = udp.recvfrom(1024)
-        print(f"Risposta discovery da {addr}: {data}")
-        if data.startswith(b"SERVER_IP:"):
-            server_ip = data.decode().split("SERVER_IP:")[1]
-            return server_ip.strip()
+        # attende risposta dal server
+        data, addr = udp_sock.recvfrom(1024)
+        ip = data.decode().split(':')[1]  # estrae l'IP dalla risposta
+        print(f"[DISCOVERY] Server trovato: {ip}")
+        return ip
     except socket.timeout:
-        raise RuntimeError("Nessuna risposta di discovery ricevuta.")
+        print("[DISCOVERY] Server non trovato")
+        return None
     finally:
-        udp.close()
+        udp_sock.close()  # chiude la socket
 
-# ----------------- CONNESSIONE TCP -----------------
-SERVER_IP = discover_server()
-print(f"IP del server rilevato: {SERVER_IP}")
+# Funzione client audio che riceve pacchetti audio UDP e li riproduce
+def audio_client(server_ip, output_device=None):
+    global stop_flag
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # crea socket UDP
+    udp_sock.bind(('', PORT_AUDIO))  # lega la socket alla porta per ricevere audio
+    print(f"[AUDIO] In ascolto UDP sulla porta {PORT_AUDIO}")
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect((SERVER_IP, TCP_PORT))
-print("Connesso al server audio!")
+    # Callback della libreria sounddevice: viene chiamata per ogni blocco audio
+    def callback(outdata, frames, time, status):
+        global stop_flag
+        if status:  # stampa eventuali warning dello stream
+            print(status)
+        try:
+            # riceve un pacchetto UDP (CHUNK * CHANNELS * 2 bytes + header)
+            data, _ = udp_sock.recvfrom(CHUNK * CHANNELS * 2 + 20)
+            
+            if data == b"TERMINATE":  # messaggio speciale per terminare il client
+                print("\n[AUDIO] Pacchetto TERMINATE ricevuto dal server. Chiudo client.")
+                stop_flag = True
+                raise sd.CallbackStop()  # ferma lo stream audio
+            
+            # converte i dati in array NumPy e li rimodella secondo i canali
+            audio = np.frombuffer(data, dtype=np.int16).reshape(-1, CHANNELS)
+            outdata[:] = audio  # invia i dati allo stream audio
+        except sd.CallbackStop:
+            raise  # rilancia per fermare lo stream
+        except:
+            outdata.fill(0)  # in caso di errore, invia silenzio
 
-# ----------------- CALLBACK AUDIO -----------------
-def audio_callback(outdata, frames, time, status):
-    if status:
-        print(status)
     try:
-        # Ricevo dati dal server
-        data = b''
-        needed = frames * CHANNELS * 4  # 4 byte per float32
-        while len(data) < needed:
-            packet = sock.recv(needed - len(data))
-            if not packet:
-                raise ConnectionError("Server chiuso")
-            data += packet
-
-        # Converto in array NumPy
-        audio_block = np.frombuffer(data, dtype='float32').reshape(frames, CHANNELS)
-
-        # Copio nei primi canali e azzero i restanti
-        outdata[:, :CHANNELS] = audio_block
-        if outdata.shape[1] > CHANNELS:
-            outdata[:, CHANNELS:] = 0.0
-
-    except Exception as e:
-        print("Errore audio:", e)
-        outdata.fill(0.0)
-
-# ----------------- STREAM OUTPUT -----------------
-with sd.OutputStream(channels=CHANNELS,
-                     samplerate=SAMPLERATE,
-                     blocksize=BLOCKSIZE,
-                     dtype='float32',
-                     device=BLACKHOLE_DEVICE,
-                     callback=audio_callback):
-    print("Riproduzione in corso su BlackHole 64ch...")
-    try:
-        while True:
-            sd.sleep(1000)
+        # apre lo stream di output audio con i parametri specificati
+        with sd.OutputStream(channels=CHANNELS, samplerate=RATE, blocksize=CHUNK,
+                             dtype='int16', device=output_device, callback=callback):
+            while not stop_flag:  # loop principale fino alla fine
+                time.sleep(0.05)  # piccolo delay per ridurre uso CPU
     except KeyboardInterrupt:
-        print("Chiusura client...")
-        sock.close()
+        print("\n[AUDIO] CTRL+C ricevuto. Terminazione client.")
+    finally:
+        udp_sock.close()  # chiude la socket
+        print("[AUDIO] Client terminato.")
+        sys.exit(0)  # termina il programma
+
+# Punto di partenza del programma
+if __name__ == "__main__":
+    print("Dispositivi disponibili:")
+    print(sd.query_devices())  # mostra tutti i dispositivi audio disponibili
+
+    print("Selezionato dispositivo di output audio:", DEVICE)
+
+    server_ip = discover_server()  # cerca il server in rete
+    if server_ip:
+        audio_client(server_ip, DEVICE)  # avvia il client audio
