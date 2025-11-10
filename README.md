@@ -26,13 +26,7 @@ CHUNK = 512      # Dimensione blocco audio
 
 ### Avvio del Server
 
-1. Controlla i dispositivi audio disponibili:
-
-```bash
-python server.py
-```
-
-2. Avvia lo streaming audio:
+Controlla i dispositivi audio disponibili e avvia lo streaming audio:
 
 ```bash
 python server.py
@@ -42,13 +36,7 @@ Il server inizierà a rispondere ai pacchetti di discovery dei client e invierà
 
 ### Avvio del Client
 
-1. Controlla i dispositivi audio disponibili:
-
-```bash
-python client.py
-```
-
-2. Avvia il client:
+1. Controlla i dispositivi audio disponibili e avvia il client:
 
 ```bash
 python client.py
